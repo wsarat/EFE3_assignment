@@ -17,7 +17,7 @@
 TaskHandle_t task1Handle, task2Handle, task3Handle, task4Handle;
 SemaphoreHandle_t uartSemaphore, switchSemaphore;
 
-#define BUF_SIZE    64
+#define BUF_SIZE    256
 #define RD_BUF_SIZE (BUF_SIZE)
 static QueueHandle_t uart0_queue;
 
@@ -110,14 +110,15 @@ static void uart_event_task(void *pvParameters)
             bzero(dtmp, RD_BUF_SIZE);
             switch(event.type) {
                 case UART_DATA:
+                    printf("uart_event_task: UART_DATA\n");
                     uart_read_bytes(UART_NUM, dtmp, event.size, portMAX_DELAY);
                     uart_write_bytes(UART_NUM, (const char*) dtmp, event.size);
                     break;
-                //UART_PATTERN_DET
                 case UART_PATTERN_DET:
+                    printf("uart_event_task: UART_PATTERN_DET\n");
                     break;
-                //Others
                 default:
+                    printf("uart_event_task: default\n");
                     break;
             }
         }
@@ -144,8 +145,8 @@ void app_main()
     uart_param_config(UART_NUM, &uartConfig);
     uart_set_pin(UART_NUM, UART_TX_PIN, UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     //Install UART driver, and get the queue.
-    uart_driver_install(UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart0_queue, 0);
-    
+    uart_driver_install(UART_NUM_1, BUF_SIZE, BUF_SIZE, 20, &uart0_queue, 0);
+
     // Initialize LED pin
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
     
