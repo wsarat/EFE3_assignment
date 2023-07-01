@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
+#include <strings.h>
 
 #define UART_NUM         UART_NUM_0
 #define UART_TX_PIN      GPIO_NUM_1
@@ -15,6 +16,10 @@
 
 TaskHandle_t task1Handle, task2Handle, task3Handle, task4Handle;
 SemaphoreHandle_t uartSemaphore, switchSemaphore;
+
+#define BUF_SIZE    64
+#define RD_BUF_SIZE (BUF_SIZE)
+static QueueHandle_t uart0_queue;
 
 void task1(void *pvParameters)
 {
@@ -58,11 +63,11 @@ void task3(void *pvParameters)
     
     while (1)
     {
-        printf("\t\t\tTsk3-P3 <-\n");
         
         // Wait for character on UART
         if (xSemaphoreTake(uartSemaphore, portMAX_DELAY) == pdTRUE)
         {
+            printf("\t\t\tTsk3-P3 <-\n");
             // Read received characters
             while (uart_read_bytes(UART_NUM, &rxData, 1, pdMS_TO_TICKS(10)) > 0)
             {
@@ -72,12 +77,8 @@ void task3(void *pvParameters)
                     gpio_set_level(LED_PIN, !gpio_get_level(LED_PIN));
                 }
             }
+            printf("\t\t\tTsk3-P3 ->\n");
         }
-        
-        printf("\t\t\tTsk3-P3 ->\n");
-        
-        // Block until a new character is received on UART
-        xSemaphoreTake(uartSemaphore, portMAX_DELAY);
     }
 }
 
@@ -98,6 +99,31 @@ void task4(void *pvParameters)
     }
 }
 
+static void uart_event_task(void *pvParameters)
+{
+    uart_event_t event;
+    size_t buffered_size;
+    uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
+    for(;;) {
+        //Waiting for UART event.
+        if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
+            bzero(dtmp, RD_BUF_SIZE);
+            switch(event.type) {
+                case UART_DATA:
+                    uart_read_bytes(UART_NUM, dtmp, event.size, portMAX_DELAY);
+                    uart_write_bytes(UART_NUM, (const char*) dtmp, event.size);
+                    break;
+                //UART_PATTERN_DET
+                case UART_PATTERN_DET:
+                    break;
+                //Others
+                default:
+                    break;
+            }
+        }
+    }
+}
+
 static void IRAM_ATTR gpio_interrupt_handler(void *args)
 {
     int pinNumber = (int)args;
@@ -108,12 +134,6 @@ static void IRAM_ATTR gpio_interrupt_handler(void *args)
 
 void app_main()
 {
-    // Configure the default UART to use USB serial port
-    esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("Task1", ESP_LOG_INFO);
-    esp_log_level_set("Task2", ESP_LOG_INFO);
-    esp_log_level_set("Task3", ESP_LOG_INFO);
-    esp_log_level_set("Task4", ESP_LOG_INFO);
     uart_config_t uartConfig = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -123,7 +143,8 @@ void app_main()
     };
     uart_param_config(UART_NUM, &uartConfig);
     uart_set_pin(UART_NUM, UART_TX_PIN, UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_NUM, 256, 0, 0, NULL, 0);
+    //Install UART driver, and get the queue.
+    uart_driver_install(UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart0_queue, 0);
     
     // Initialize LED pin
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
@@ -149,6 +170,8 @@ void app_main()
     xTaskCreate(task2, "Task2", 2048, NULL, 2, &task2Handle);
     xTaskCreate(task3, "Task3", 2048, NULL, 3, &task3Handle);
     xTaskCreate(task4, "Task4", 2048, NULL, 4, &task4Handle);
+
+    xTaskCreate(uart_event_task, "uart_event_task", 2048, NULL, 12, NULL);
     
     /*
     https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/freertos.html
