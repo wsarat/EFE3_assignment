@@ -137,8 +137,13 @@ void app_main()
     xTaskCreate(task3, "Task3", 2048, NULL, 3, &task3Handle);
     xTaskCreate(task4, "Task4", 2048, NULL, 4, &task4Handle);
     
+    /*
+    https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/freertos.html
+    Users of FreeRTOS in ESP-IDF must never call vTaskStartScheduler() and vTaskEndScheduler(). Instead, ESP-IDF will start FreeRTOS automatically.
+
     // Start the scheduler
     vTaskStartScheduler();
+    */ 
     
     // Cleanup (should never reach here)
     vTaskDelete(task1Handle);
