@@ -60,24 +60,27 @@ void task2(void *pvParameters)
 void task3(void *pvParameters)
 {
     uint8_t rxData;
+    bool ledOn = false;
     
     while (1)
     {
-        
         // Wait for character on UART
         if (xSemaphoreTake(uartSemaphore, portMAX_DELAY) == pdTRUE)
         {
-            printf("\t\t\tTsk3-P3 <-\n");
-            // Read received characters
-            while (uart_read_bytes(UART_NUM, &rxData, 1, pdMS_TO_TICKS(10)) > 0)
-            {
-                if (rxData == 'L' || rxData == 'l')
-                {
-                    // Toggle LED
-                    gpio_set_level(LED_PIN, !gpio_get_level(LED_PIN));
-                }
+            uart_read_bytes(UART_NUM_0, &rxData, 1, portMAX_DELAY);
+
+            if (rxData == 'l' || rxData == 'L') {
+                printf("\t\t\tTsk3-P3 <-\n");
+
+                // toggles LED
+                ledOn = !ledOn;
+                gpio_set_level(LED_PIN, ledOn);
+
+                // Run for about 10 ticks
+                vTaskDelay(pdMS_TO_TICKS(50));
+
+                printf("\t\t\tTsk3-P3 ->\n");
             }
-            printf("\t\t\tTsk3-P3 ->\n");
         }
     }
 }
@@ -102,25 +105,11 @@ void task4(void *pvParameters)
 static void uart_event_task(void *pvParameters)
 {
     uart_event_t event;
-    size_t buffered_size;
-    uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
     for(;;) {
         //Waiting for UART event.
         if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
-            bzero(dtmp, RD_BUF_SIZE);
-            switch(event.type) {
-                case UART_DATA:
-                    printf("uart_event_task: UART_DATA\n");
-                    uart_read_bytes(UART_NUM, dtmp, event.size, portMAX_DELAY);
-                    uart_write_bytes(UART_NUM, (const char*) dtmp, event.size);
-                    break;
-                case UART_PATTERN_DET:
-                    printf("uart_event_task: UART_PATTERN_DET\n");
-                    break;
-                default:
-                    printf("uart_event_task: default\n");
-                    break;
-            }
+            if (event.type == UART_DATA) 
+                xSemaphoreGive(uartSemaphore);
         }
     }
 }
@@ -129,8 +118,10 @@ static void IRAM_ATTR gpio_interrupt_handler(void *args)
 {
     int pinNumber = (int)args;
 
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(switchSemaphore, &xHigherPriorityTaskWoken);
+    if (pinNumber == 0) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(switchSemaphore, &xHigherPriorityTaskWoken);
+    }
 }
 
 void app_main()
@@ -143,9 +134,9 @@ void app_main()
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
     uart_param_config(UART_NUM, &uartConfig);
-    uart_set_pin(UART_NUM, UART_TX_PIN, UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    //uart_set_pin(UART_NUM, UART_TX_PIN, UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     //Install UART driver, and get the queue.
-    uart_driver_install(UART_NUM_1, BUF_SIZE, BUF_SIZE, 20, &uart0_queue, 0);
+    uart_driver_install(UART_NUM_0, BUF_SIZE, BUF_SIZE, 20, &uart0_queue, 0);
 
     // Initialize LED pin
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
@@ -161,7 +152,7 @@ void app_main()
     // init pin 0 (button) interrupt
     gpio_set_direction(BUTTON, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BUTTON, GPIO_PULLUP_ONLY);
-    gpio_set_intr_type(BUTTON, GPIO_INTR_ANYEDGE); //GPIO_INTR_ANYEDGE GPIO_INTR_LOW_LEVEL
+    gpio_set_intr_type(BUTTON, GPIO_INTR_LOW_LEVEL);
 
     gpio_install_isr_service(0);
     gpio_isr_handler_add(BUTTON, gpio_interrupt_handler, (void *)BUTTON);
